@@ -1,4 +1,4 @@
-# ⚛️ Ray Tracer: Vue Frontend
+# ⚛️ Optical Designer : Vue Frontend
 
 This is the Single-Page Application (SPA) built with Vue 3 (or Vue CLI/Vite) that provides the graphical interface for designing optical systems and visualizing the ray tracing simulation results.
 
