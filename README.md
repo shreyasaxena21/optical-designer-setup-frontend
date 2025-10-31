@@ -33,3 +33,15 @@ Navigate to the `frontend/` directory and install dependencies:
 npm install
 # OR
 yarn install
+```
+
+### 3. Local API Endpoint
+For local testing, the application defaults to connecting to a Flask server running on port 5000.
+
+### 4. Run the Development Server
+Start the Vue application. It typically runs on http://localhost:8080.
+
+```bash
+npm run dev
+# OR
+npm run serve
