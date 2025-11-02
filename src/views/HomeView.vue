@@ -205,7 +205,7 @@ let startAngle = 0;
 const gridAreaOffset = ref({ left: 0, top: 0 });
 
 // Constants
-const BACKEND_URL: 'https://optical-designer-setup-backend.onrender.com/simulate';
+const BACKEND_URL =  'https://optical-designer-setup-backend.onrender.com/simulate';
 const GRID_SIZE = 20;
 
 // --- COMPUTED PROPERTIES ---
