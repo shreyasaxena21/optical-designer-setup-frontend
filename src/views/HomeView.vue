@@ -182,8 +182,8 @@
   </div>
 </template>
 
-<script>
-import axios from 'axios';
+<script setup>
+import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue';
 
 // --- IMAGE IMPORTS ---
 import laserSourceImage from '@/assets/laser-source.png';
@@ -192,310 +192,290 @@ import convexLensImage from '@/assets/convex-lens.png';
 import beamSplitterImage from '@/assets/beam-splitter.png';
 import photoDetectorImage from '@/assets/photo-detector.png';
 
-export default {
-  name: 'OpticalSetupDesigner',
-  
-  data() {
-    return {
-      // Image references
-      laserSourceImage,
-      planarMirrorImage,
-      convexLensImage,
-      beamSplitterImage,
-      photoDetectorImage,
-      
-      // State
-      components: [],
-      selectedComponentId: null,
-      simulationResults: null,
-      
-      // Drag/Rotate State
-      isDragging: false,
-      isRotating: false,
-      draggingComponentId: null,
-      startAngle: 0,
-      gridAreaOffset: { left: 0, top: 0 },
-      
-      // Constants
-      BACKEND_URL: process.env.VUE_APP_BACKEND_URL || 'http://localhost:5000',
-      GRID_SIZE: 20,
-      
-      // Timers
-      simulationTimeout: null,
-    };
-  },
-  
-  computed: {
-    selectedComponent() {
-      return this.components.find(comp => comp.id === this.selectedComponentId);
-    },
-    
-    simulationInputData() {
-      const dataToSimulate = this.components.map(({ id, x, y, angle, properties }) => ({
+// --- REF & STATE INITIALIZATION ---
+const components = ref([]);
+const selectedComponentId = ref(null);
+const simulationResults = ref(null); 
+
+// Drag/Rotate State
+let isDragging = false;
+let isRotating = false;
+let draggingComponentId = null;
+let startAngle = 0;
+const gridAreaOffset = ref({ left: 0, top: 0 });
+
+// Constants
+const BACKEND_URL = "http://localhost:5000/simulate";
+const GRID_SIZE = 20;
+
+// --- COMPUTED PROPERTIES ---
+const selectedComponent = computed(() => 
+  components.value.find(comp => comp.id === selectedComponentId.value)
+);
+
+const simulationInputData = computed(() => {
+    const dataToSimulate = components.value.map(({ id, x, y, angle, properties }) => ({
         id, x, y, angle, properties: JSON.stringify(properties)
-      }));
-      return JSON.stringify(dataToSimulate);
-    },
-  },
-  
-  watch: {
-    simulationInputData(newVal, oldVal) {
-      if (newVal !== oldVal) {
-        if (this.simulationTimeout) {
-          clearTimeout(this.simulationTimeout);
-        }
-        this.simulationTimeout = setTimeout(() => {
-          if (!this.isDragging && !this.isRotating) {
-            this.handleRunSimulation();
-          }
-        }, 300);
-      }
-    },
-  },
-  
-  mounted() {
-    if (this.components.length > 0) {
-      this.handleRunSimulation();
-    }
-  },
-  
-  beforeUnmount() {
-    window.removeEventListener('mousemove', this.dragComponentMove);
-    window.removeEventListener('mouseup', this.stopDragComponent);
-    window.removeEventListener('mousemove', this.rotateComponentMove);
-    window.removeEventListener('mouseup', this.stopRotateComponent);
-    if (this.simulationTimeout) {
-      clearTimeout(this.simulationTimeout);
-    }
-  },
-  
-  methods: {
-    // --- HELPER FUNCTIONS ---
-    getInteractionCount(compId) {
-      if (!this.simulationResults?.results?.statistics?.component_interactions) return 0;
-      return this.simulationResults.results.statistics.component_interactions[compId]?.interactions || 0;
-    },
-    
-    generateUniqueId(type) {
-      return `${type.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    },
-    
-    // --- DRAG-AND-DROP FROM PALETTE TO GRID ---
-    handleDragStart(event, type, imageUrlVariable) {
-      event.dataTransfer.setData('componentType', type);
-      event.dataTransfer.setData('componentImageUrl', imageUrlVariable);
-      event.dataTransfer.effectAllowed = 'copy';
-    },
-    
-    handleDragOver(event) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
-    },
-    
-    handleDrop(event) {
-      event.preventDefault();
-      const type = event.dataTransfer.getData('componentType');
-      const imageUrl = event.dataTransfer.getData('componentImageUrl');
+    }));
+    return JSON.stringify(dataToSimulate);
+});
 
-      if (!type) return;
+// --- HELPER FUNCTIONS ---
+const getInteractionCount = (compId) => {
+  if (!simulationResults.value?.results?.statistics?.component_interactions) return 0;
+  return simulationResults.value.results.statistics.component_interactions[compId]?.interactions || 0;
+};
 
-      const gridArea = event.currentTarget.getBoundingClientRect();
-      let x = event.clientX - gridArea.left;
-      let y = event.clientY - gridArea.top;
+// --- DRAG-AND-DROP FROM PALETTE TO GRID ---
+const generateUniqueId = (type) => `${type.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      x = Math.round(x / this.GRID_SIZE) * this.GRID_SIZE;
-      y = Math.round(y / this.GRID_SIZE) * this.GRID_SIZE;
+const handleDragStart = (event, type, imageUrlVariable) => {
+    event.dataTransfer.setData('componentType', type);
+    event.dataTransfer.setData('componentImageUrl', imageUrlVariable); 
+    event.dataTransfer.effectAllowed = 'copy';
+};
 
-      const newComponent = {
-        id: this.generateUniqueId(type),
+const handleDragOver = (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+};
+
+const handleDrop = (event) => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('componentType');
+    const imageUrl = event.dataTransfer.getData('componentImageUrl');
+
+    if (!type) return;
+
+    const gridArea = event.currentTarget.getBoundingClientRect();
+    let x = event.clientX - gridArea.left;
+    let y = event.clientY - gridArea.top;
+
+    x = Math.round(x / GRID_SIZE) * GRID_SIZE;
+    y = Math.round(y / GRID_SIZE) * GRID_SIZE;
+
+    const newComponent = {
+        id: generateUniqueId(type),
         type: type,
         x: x,
         y: y,
         angle: 0,
         imageUrl: imageUrl,
         properties: {}
-      };
+    };
 
-      // Set default properties
-      if (type === 'Source') {
+    // Set default properties
+    if (type === 'Source') {
         newComponent.properties = { wavelength: 632, intensity: 1.0, spread_deg: 0 };
-      } else if (type === 'Mirror') {
+    } else if (type === 'Mirror') {
         newComponent.properties = { reflectivity: 0.95, diameter: 50 };
-      } else if (type === 'Lens') {
+    } else if (type === 'Lens') {
         newComponent.properties = { focalLength: 100, diameter: 50, transmission: 0.98 };
-      } else if (type === 'Beam Splitter') {
+    } else if (type === 'Beam Splitter') {
         newComponent.properties = { splitRatio: 0.5, diameter: 50 };
-      } else if (type === 'Photo Detector') {
+    } else if (type === 'Photo Detector') {
         newComponent.properties = { sensitivity: 1.0, diameter: 50 };
-      }
-
-      this.components.push(newComponent);
-      this.selectedComponentId = newComponent.id;
-      this.handleRunSimulation();
-    },
+    }
     
-    // --- DRAGGING LOGIC ---
-    startDragComponent(id, event) {
-      this.isDragging = true;
-      this.draggingComponentId = id;
-      this.selectedComponentId = id;
-      const comp = this.components.find(c => c.id === id);
-      if (!comp) return;
+    components.value.push(newComponent);
+    selectedComponentId.value = newComponent.id;
+    handleRunSimulation();
+};
 
-      const gridArea = event.currentTarget.parentElement.getBoundingClientRect();
-      this.gridAreaOffset.left = gridArea.left;
-      this.gridAreaOffset.top = gridArea.top;
+// --- DRAGGING LOGIC ---
+const startDragComponent = (id, event) => {
+    isDragging = true;
+    draggingComponentId = id;
+    selectedComponentId.value = id;
+    const comp = components.value.find(c => c.id === id);
+    if (!comp) return;
 
-      const compRect = event.currentTarget.getBoundingClientRect();
-      comp.offsetX = event.clientX - compRect.left;
-      comp.offsetY = event.clientY - compRect.top;
-
-      window.addEventListener('mousemove', this.dragComponentMove);
-      window.addEventListener('mouseup', this.stopDragComponent);
-    },
+    const gridArea = event.currentTarget.parentElement.getBoundingClientRect();
+    gridAreaOffset.value.left = gridArea.left;
+    gridAreaOffset.value.top = gridArea.top;
     
-    dragComponentMove(event) {
-      if (!this.isDragging || !this.draggingComponentId) return;
-      const comp = this.components.find(c => c.id === this.draggingComponentId);
-      if (!comp) return;
+    const compRect = event.currentTarget.getBoundingClientRect();
+    comp.offsetX = event.clientX - compRect.left;
+    comp.offsetY = event.clientY - compRect.top;
 
-      let newX = event.clientX - this.gridAreaOffset.left - comp.offsetX;
-      let newY = event.clientY - this.gridAreaOffset.top - comp.offsetY;
+    window.addEventListener('mousemove', dragComponentMove);
+    window.addEventListener('mouseup', stopDragComponent);
+};
 
-      newX = Math.round(newX / this.GRID_SIZE) * this.GRID_SIZE;
-      newY = Math.round(newY / this.GRID_SIZE) * this.GRID_SIZE;
+const dragComponentMove = (event) => {
+    if (!isDragging || !draggingComponentId) return;
+    const comp = components.value.find(c => c.id === draggingComponentId);
+    if (!comp) return;
 
-      comp.x = newX;
-      comp.y = newY;
-    },
-    
-    stopDragComponent() {
-      this.isDragging = false;
-      this.draggingComponentId = null;
-      window.removeEventListener('mousemove', this.dragComponentMove);
-      window.removeEventListener('mouseup', this.stopDragComponent);
-      this.handleRunSimulation();
-    },
-    
-    // --- ROTATION LOGIC ---
-    startRotateComponent(id, event) {
-      this.isRotating = true;
-      this.draggingComponentId = id;
-      this.selectedComponentId = id;
-      const comp = this.components.find(c => c.id === id);
-      if (!comp) return;
+    let newX = event.clientX - gridAreaOffset.value.left - comp.offsetX; 
+    let newY = event.clientY - gridAreaOffset.value.top - comp.offsetY;
 
-      const compRect = event.currentTarget.closest('.grid-component').getBoundingClientRect();
-      const centerX = compRect.left + compRect.width / 2;
-      const centerY = compRect.top + compRect.height / 2;
+    newX = Math.round(newX / GRID_SIZE) * GRID_SIZE;
+    newY = Math.round(newY / GRID_SIZE) * GRID_SIZE;
 
-      const dx = event.clientX - centerX;
-      const dy = event.clientY - centerY;
-      this.startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+    comp.x = newX;
+    comp.y = newY;
+};
 
-      window.addEventListener('mousemove', this.rotateComponentMove);
-      window.addEventListener('mouseup', this.stopRotateComponent);
-    },
-    
-    rotateComponentMove(event) {
-      if (!this.isRotating || !this.draggingComponentId) return;
-      const comp = this.components.find(c => c.id === this.draggingComponentId);
-      if (!comp) return;
+const stopDragComponent = () => {
+    isDragging = false;
+    draggingComponentId = null;
+    window.removeEventListener('mousemove', dragComponentMove);
+    window.removeEventListener('mouseup', stopDragComponent);
+    handleRunSimulation(); 
+};
 
-      const compElement = document.querySelector(`.grid-component[data-id="${comp.id}"]`);
-      if (!compElement) return;
+// --- ROTATION LOGIC ---
+const startRotateComponent = (id, event) => {
+    isRotating = true;
+    draggingComponentId = id;
+    selectedComponentId.value = id;
+    const comp = components.value.find(c => c.id === id);
+    if (!comp) return;
 
-      const compRect = compElement.getBoundingClientRect();
-      const centerX = compRect.left + compRect.width / 2;
-      const centerY = compRect.top + compRect.height / 2;
+    const compRect = event.currentTarget.closest('.grid-component').getBoundingClientRect();
+    const centerX = compRect.left + compRect.width / 2;
+    const centerY = compRect.top + compRect.height / 2;
 
-      const dx = event.clientX - centerX;
-      const dy = event.clientY - centerY;
-      const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+    const dx = event.clientX - centerX;
+    const dy = event.clientY - centerY;
+    startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-      comp.angle = (comp.angle + (currentAngle - this.startAngle));
-      comp.angle = (comp.angle % 360 + 360) % 360;
-      this.startAngle = currentAngle;
-    },
-    
-    stopRotateComponent() {
-      this.isRotating = false;
-      this.draggingComponentId = null;
-      window.removeEventListener('mousemove', this.rotateComponentMove);
-      window.removeEventListener('mouseup', this.stopRotateComponent);
-      this.handleRunSimulation();
-    },
-    
-    // --- UI LOGIC ---
-    selectComponent(id) {
-      this.selectedComponentId = id;
-    },
-    
-    deleteSelectedComponent() {
-      if (this.selectedComponentId) {
-        this.components = this.components.filter(comp => comp.id !== this.selectedComponentId);
-        this.selectedComponentId = null;
-        this.handleRunSimulation();
-      }
-    },
-    
-    // --- SIMULATION (Using Axios) ---
-    handleRunSimulation() {
-      const url = `${BACKEND_URL}/api/simulate`;
-      if (this.components.length === 0) {
-        this.simulationResults = null;
+    window.addEventListener('mousemove', rotateComponentMove);
+    window.addEventListener('mouseup', stopRotateComponent);
+};
+
+const rotateComponentMove = (event) => {
+    if (!isRotating || !draggingComponentId) return;
+    const comp = components.value.find(c => c.id === draggingComponentId);
+    if (!comp) return;
+
+    const compElement = document.querySelector(`.grid-component[data-id="${comp.id}"]`); 
+    if (!compElement) return;
+
+    const compRect = compElement.getBoundingClientRect();
+    const centerX = compRect.left + compRect.width / 2;
+    const centerY = compRect.top + compRect.height / 2;
+
+    const dx = event.clientX - centerX;
+    const dy = event.clientY - centerY;
+    const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+    comp.angle = (comp.angle + (currentAngle - startAngle));
+    comp.angle = (comp.angle % 360 + 360) % 360;
+    startAngle = currentAngle;
+};
+
+const stopRotateComponent = () => {
+    isRotating = false;
+    draggingComponentId = null;
+    window.removeEventListener('mousemove', rotateComponentMove);
+    window.removeEventListener('mouseup', stopRotateComponent);
+    handleRunSimulation();
+};
+
+// --- UI LOGIC ---
+const selectComponent = (id) => {
+    selectedComponentId.value = id;
+};
+
+const deleteSelectedComponent = () => {
+    if (selectedComponentId.value) {
+        components.value = components.value.filter(comp => comp.id !== selectedComponentId.value);
+        selectedComponentId.value = null;
+        handleRunSimulation();
+    }
+};
+
+// --- SIMULATION ---
+const handleRunSimulation = async () => {
+    if (components.value.length === 0) {
+        simulationResults.value = null;
         return;
-      }
+    }
 
-      const dataToSend = this.components.map(({ id, type, x, y, angle, properties }) => ({
-        id, type, x, y, angle, properties
-      }));
+    try {
+        const dataToSend = components.value.map(({ id, type, x, y, angle, properties }) => ({
+            id, type, x, y, angle, properties
+        }));
 
-      axios
-        .post(url, dataToSend, {
-          headers: { 'Content-Type': 'application/json' },
-        })
-        .then(response => {
-          if (response.status === 200) {
-            this.simulationResults = response.data;
-            console.log('Simulation results:', this.simulationResults);
-          }
-        })
-        .catch(error => {
-          console.error('Error running simulation:', error);
-          this.simulationResults = null;
+        const response = await fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dataToSend),
         });
-    },
-    
-    // --- UTILITY ---
-    handleDownloadJSON() {
-      const dataToExport = {
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        simulationResults.value = data; 
+        
+    } catch (error) {
+        console.error("Error running simulation:", error);
+        simulationResults.value = null;
+    }
+};
+
+// Auto-run simulation on property changes
+watch(simulationInputData, (newVal, oldVal) => {
+    if (newVal !== oldVal) {
+        if (window.simulationTimeout) {
+            clearTimeout(window.simulationTimeout);
+        }
+        window.simulationTimeout = setTimeout(() => {
+            if (!isDragging && !isRotating) {
+               handleRunSimulation();
+            }
+        }, 300); 
+    }
+}, { deep: false });
+
+// --- UTILITY ---
+const handleDownloadJSON = () => {
+    const dataToExport = {
         version: '1.0',
         timestamp: new Date().toISOString(),
-        components: this.components.map(({ id, type, x, y, angle, properties }) => ({
-          id, type, x, y, angle, properties
+        components: components.value.map(({ id, type, x, y, angle, properties }) => ({
+            id, type, x, y, angle, properties
         })),
-        simulationResults: this.simulationResults
-      };
-
-      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(dataToExport, null, 2));
-      const downloadAnchorNode = document.createElement('a');
-
-      const now = new Date().toISOString().replace(/[:.]/g, '-');
-      downloadAnchorNode.setAttribute('href', dataStr);
-      downloadAnchorNode.setAttribute('download', `optical-setup_${now}.json`);
-
-      document.body.appendChild(downloadAnchorNode);
-      this.$nextTick(() => {
+        simulationResults: simulationResults.value
+    };
+    
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dataToExport, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    
+    const now = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `optical-setup_${now}.json`);
+    
+    document.body.appendChild(downloadAnchorNode);
+    nextTick(() => { 
         downloadAnchorNode.click();
         downloadAnchorNode.remove();
-      });
-    },
-  },
+    });
 };
+
+onBeforeUnmount(() => {
+    window.removeEventListener('mousemove', dragComponentMove);
+    window.removeEventListener('mouseup', stopDragComponent);
+    window.removeEventListener('mousemove', rotateComponentMove);
+    window.removeEventListener('mouseup', stopRotateComponent);
+    if (window.simulationTimeout) {
+         clearTimeout(window.simulationTimeout);
+    }
+});
+
+nextTick(() => {
+    if (components.value.length > 0) {
+        handleRunSimulation();
+    }
+});
 </script>
 
 <style scoped>
+
 .designer-layout {
   display: flex;
   height: 100vh;
@@ -552,7 +532,7 @@ export default {
 .grid-area {
   flex-grow: 1;
   position: relative;
-  background-color: #0a0a0a;
+  background-color: #0a0a0a; 
   background-image: 
     linear-gradient(to right, #333 1px, transparent 1px),
     linear-gradient(to bottom, #333 1px, transparent 1px);
@@ -568,7 +548,7 @@ export default {
   display: flex;
   justify-content: center;
   align-items: center;
-  border: 2px solid transparent;
+  border: 2px solid transparent; 
   border-radius: 8px;
   cursor: grab;
   user-select: none;
@@ -629,7 +609,7 @@ export default {
   background-color: #1890ff;
   border-radius: 50%;
   border: 1px solid white;
-  bottom: -5px;
+  bottom: -5px; 
   right: -5px;
   cursor: ew-resize;
   z-index: 101;
