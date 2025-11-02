@@ -217,7 +217,7 @@ export default {
       gridAreaOffset: { left: 0, top: 0 },
       
       // Constants
-      BACKEND_URL: 'http://localhost:5000/api/simulate',
+      BACKEND_URL: process.env.VUE_APP_BACKEND_URL || 'http://localhost:5000/api/simulate',
       GRID_SIZE: 20,
       
       // Timers
