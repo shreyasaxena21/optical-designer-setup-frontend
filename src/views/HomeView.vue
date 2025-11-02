@@ -205,7 +205,7 @@ let startAngle = 0;
 const gridAreaOffset = ref({ left: 0, top: 0 });
 
 // Constants
-const BACKEND_URL = "http://localhost:5000/simulate";
+const BACKEND_URL: process.env.VUE_APP_BACKEND_URL || 'http://localhost:5000/simulate';
 const GRID_SIZE = 20;
 
 // --- COMPUTED PROPERTIES ---
