@@ -217,7 +217,7 @@ export default {
       gridAreaOffset: { left: 0, top: 0 },
       
       // Constants
-      BACKEND_URL: process.env.VUE_APP_BACKEND_URL || 'http://localhost:5000/api/simulate',
+      BACKEND_URL: process.env.VUE_APP_BACKEND_URL || 'http://localhost:5000',
       GRID_SIZE: 20,
       
       // Timers
@@ -441,6 +441,7 @@ export default {
     
     // --- SIMULATION (Using Axios) ---
     handleRunSimulation() {
+      const url = `${BACKEND_URL}/api/simulate`;
       if (this.components.length === 0) {
         this.simulationResults = null;
         return;
@@ -451,7 +452,7 @@ export default {
       }));
 
       axios
-        .post(this.BACKEND_URL, dataToSend, {
+        .post(url, dataToSend, {
           headers: { 'Content-Type': 'application/json' },
         })
         .then(response => {
